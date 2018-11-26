@@ -104,8 +104,8 @@ namespace cAlgo.Robots
         TrendType Sellway = TrendType.None;
 
 
-        int maxBuyLabel = -1;
-        int minSellLabel = -1;
+        int maxBuyLabel = 0;
+        int minSellLabel = 0;
         int lastLabelBuy = 0;
         int lastLabelSell = 0;
 
@@ -141,7 +141,7 @@ namespace cAlgo.Robots
 
 
                 CalAllPlayPoint();
-                //NewOpenOrFixInLength();
+                NewOpenOrFixInLength();
 
                 Print("-----OnStart----");
             } catch (Exception ex)
@@ -237,18 +237,70 @@ namespace cAlgo.Robots
             try
             {
                 var poOpen = args.Position;
+                int poLabel = Convert.ToInt32(poOpen.Label);
 
-                //ขา buy ทำ new hi ใหม่
-                if (poOpen.TradeType == TradeType.Buy && Convert.ToInt32(poOpen.Label) > lastLabelBuy)
+
+                if (lastLabelBuy != 0 || lastLabelSell != 0)
                 {
-                    maxBuyLabel = Convert.ToInt32(poOpen.Label);
-                    Task.Factory.StartNew(() => CalTP_SL_PlusWay_BuyWay_OnOpened());
-                    Task.Factory.StartNew(() => InitialPendingSell(Convert.ToInt32(poOpen.Label))).Wait();
+                    if (poOpen.TradeType == TradeType.Buy)
+                    {
+                        //ทำ new hi
+                        if (poLabel > maxBuyLabel)
+                        {
+                            lastLabelBuy = Convert.ToInt32(poOpen.Label);
+                            maxBuyLabel = Convert.ToInt32(poOpen.Label);
+                            Task.Factory.StartNew(() => ClearPending(TradeType.Sell, poOpen.Label, true)).Wait();
+                            Task.Factory.StartNew(() => ReInitialPendingSellWhileUp(poLabel)).Wait();
+                        }
+                        else
+                        {
+
+                        }
+                    }
+                    else
+                    {
+                        //ทำ new low
+                        if (lastLabelSell != 0)
+                        {
+                            if (Convert.ToInt32(poOpen.Label) < minSellLabel)
+                            {
+                                lastLabelSell = Convert.ToInt32(poOpen.Label);
+                                minSellLabel = Convert.ToInt32(poOpen.Label);
+                                Task.Factory.StartNew(() => ClearPending(TradeType.Buy, poOpen.Label, true)).Wait();
+                                Task.Factory.StartNew(() => ReInitialPendingBuyWhileDown(poLabel)).Wait();
+                            }
+                            else
+                            {
+
+                            }
+                        }
+                    }
                 }
-                else if (poOpen.TradeType == TradeType.Sell && Convert.ToInt32(poOpen.Label) < lastLabelSell)
+                else
                 {
-                    minSellLabel = Convert.ToInt32(poOpen.Label);
+                    if (poOpen.TradeType == TradeType.Buy)
+                    {
+                        lastLabelSell = Convert.ToInt32(poOpen.Label);
+                        minSellLabel = Convert.ToInt32(poOpen.Label);
+
+                        Task.Factory.StartNew(() => ClearPending(TradeType.Sell, poOpen.Label, true)).Wait();
+
+                        Task.Factory.StartNew(() => ReInitialPendingSellWhileUp(poLabel)).Wait();
+
+
+                    }
+                    else
+                    {
+                        lastLabelSell = Convert.ToInt32(poOpen.Label);
+                        minSellLabel = Convert.ToInt32(poOpen.Label);
+
+                        Task.Factory.StartNew(() => ClearPending(TradeType.Buy, poOpen.Label, true)).Wait();
+
+                        Task.Factory.StartNew(() => ReInitialPendingBuyWhileDown(poLabel)).Wait();
+
+                    }
                 }
+
                 //Print(">>PositionsOnOpened");
 
                 //var poOpen = args.Position;
@@ -291,46 +343,33 @@ namespace cAlgo.Robots
             }
         }
 
-        private void InitialPendingSell(int labelMaxBuy)
-        {
-            var lsKPLess = lsKeyPrice.Where(a => a.Key < labelMaxBuy).OrderByDescending(o => o.Key).Take(CountPending).ToList();
-
-            //เปิด pending ที่ราคาต่ำกว่าปัจจุบัน
-            int n = 0;
-            foreach (var kp in lsKPLess)
-            {
-                PlaceLimitOrderAsync(TradeType.Buy, Symbol, vol, kp.Value, kp.Key.ToString(), null, (PipSize), null, CommentSytem, null);
-                PlaceStopOrderAsync(TradeType.Sell, Symbol, CalNFlag(n), kp.Value, kp.Key.ToString(), null, (PipSize), null, CommentSytem, null);
-                n++;
-            }
-
-        }
-
         private void PositionsOnClosed(PositionClosedEventArgs args)
         {
             try
             {
                 var po = args.Position;
 
-                if (isCalculatingOnClose)
-                {
-                    lsOnClose.Add(po.Label);
-                    return;
-                }
-
                 Task.Factory.StartNew(() => FixAfterClose(po)).Wait();
 
-                while (lsOnClose.Count > 0)
-                {
-                    //Task.Factory.StartNew(() => CheckClose(po.Label)).Wait();
-                    lsOnClose.RemoveAt(0);
-                }
+                //if (isCalculatingOnClose)
+                //{
+                //    lsOnClose.Add(po.Label);
+                //    return;
+                //}
 
                 //Task.Factory.StartNew(() => FixAfterClose(po)).Wait();
-                //NewOpenOrFixInLength();
-                //CleanDupOrderAndPending();
 
-                isCalculatingOnOpen = false;
+                //while (lsOnClose.Count > 0)
+                //{
+                //    //Task.Factory.StartNew(() => CheckClose(po.Label)).Wait();
+                //    lsOnClose.RemoveAt(0);
+                //}
+
+                ////Task.Factory.StartNew(() => FixAfterClose(po)).Wait();
+                ////NewOpenOrFixInLength();
+                ////CleanDupOrderAndPending();
+
+                //isCalculatingOnOpen = false;
 
             } catch (Exception ex)
             {
@@ -420,7 +459,7 @@ namespace cAlgo.Robots
 
 
             //เปิด pending ที่ราคาสูงกว่าปัจจุบัน
-            int n = 0;
+            int n = 1;
             foreach (var kp in lsKPMore)
             {
                 PlaceStopOrderAsync(TradeType.Buy, Symbol, CalNFlag(n), kp.Value, kp.Key.ToString(), null, (PipSize), null, CommentSytem, null);
@@ -429,7 +468,7 @@ namespace cAlgo.Robots
             }
 
             //เปิด pending ที่ราคาต่ำกว่าปัจจุบัน
-            n = 0;
+            n = 1;
             foreach (var kp in lsKPLess)
             {
                 PlaceLimitOrderAsync(TradeType.Buy, Symbol, vol, kp.Value, kp.Key.ToString(), null, (PipSize), null, CommentSytem, null);
@@ -438,9 +477,118 @@ namespace cAlgo.Robots
             }
         }
 
+        private void ReInitialPendingOrder(TradeType tradeType, int Openedlabel)
+        {
+            if (tradeType == TradeType.Buy)
+            {
+                var lsKPMore = lsKeyPrice.Where(a => a.Key > Openedlabel).OrderBy(o => o.Key).Take(CountPending).ToList();
+
+                //เปิด pending ที่ราคาสูงกว่าปัจจุบัน เฉพาะขา
+                int n = 2;
+                foreach (var kp in lsKPMore)
+                {
+                    PlaceStopOrderAsync(TradeType.Buy, Symbol, CalNFlag(n), kp.Value, kp.Key.ToString(), null, (PipSize), null, CommentSytem, null);
+                    //PlaceLimitOrderAsync(TradeType.Sell, Symbol, vol, kp.Value, kp.Key.ToString(), null, (PipSize), null, CommentSytem, null);
+                    n++;
+                }
+            }
+            else
+            {
+                var lsKPLess = lsKeyPrice.Where(a => a.Value < Openedlabel).OrderByDescending(o => o.Key).Take(CountPending).ToList();
+
+                //เปิด pending ที่ราคาต่ำกว่าปัจจุบัน เฉพาะขา
+                int n = 2;
+                foreach (var kp in lsKPLess)
+                {
+                    //PlaceLimitOrderAsync(TradeType.Buy, Symbol, vol, kp.Value, kp.Key.ToString(), null, (PipSize), null, CommentSytem, null);
+                    PlaceStopOrderAsync(TradeType.Sell, Symbol, CalNFlag(n), kp.Value, kp.Key.ToString(), null, (PipSize), null, CommentSytem, null);
+                    n++;
+                }
+            }
+
+
+
+
+        }
+
+        List<string> cancelPedingList = new List<string>();
+        private void ClearPending(TradeType tradeType, string presentLabel, bool isWait)
+        {
+            var pes = PendingOrders.Where(x => x.SymbolCode == Symbol.Code && x.TradeType == tradeType && x.Label != presentLabel);
+            foreach (var pe in pes)
+            {
+                cancelPedingList.Add(pe.Label);
+                CancelPendingOrderAsync(pe, CancelPendingCallback);
+            }
+
+            int countWait = 0;
+            while (cancelPedingList.Count > 0 && isWait && countWait < 10)
+            {
+                Print("รอกำลังยกเลิก pending ขา>>" + tradeType + " เหลือ>>" + cancelPedingList.Count);
+                System.Threading.Thread.Sleep(1000);
+            }
+            Print("ครบ10วินาที pending ขา>>" + tradeType + " เหลือ>>" + cancelPedingList.Count);
+            cancelPedingList = new List<string>();
+        }
+        private void CancelPendingCallback(TradeResult tr)
+        {
+            if (tr.IsSuccessful)
+            {
+                cancelPedingList.Remove(tr.PendingOrder.Label);
+            }
+            else
+            {
+                var tr2 = CancelPendingOrder(tr.PendingOrder);
+                if (tr2.IsSuccessful)
+                {
+                    cancelPedingList.Remove(tr.PendingOrder.Label);
+                }
+                else
+                {
+                    if (PendingOrders.Where(x => x.SymbolCode == Symbol.Code && x.Label == tr.PendingOrder.Label).Count() > 0)
+                    {
+                        Print("ERROR!!! ไม่สามารถยกเลิก pending >>>" + tr.PendingOrder.Label);
+                        cancelPedingList.Remove(tr.PendingOrder.Label);
+                    }
+                    else
+                    {
+                        cancelPedingList.Remove(tr.PendingOrder.Label);
+                    }
+                }
+            }
+        }
+
+        private void ReInitialPendingBuyWhileDown(int poLabel)
+        {
+            var lsKPLess = lsKeyPrice.Where(a => a.Key >= poLabel).OrderByDescending(o => o.Key).Take(CountPending).ToList();
+
+            //เปิด pending ที่ราคาต่ำกว่าปัจจุบัน
+            int n = 2;
+            foreach (var kp in lsKPLess)
+            {
+                PlaceLimitOrderAsync(TradeType.Buy, Symbol, CalNFlag(n), kp.Value, kp.Key.ToString(), null, (PipSize), null, CommentSytem, null);
+                //PlaceStopOrderAsync(TradeType.Sell, Symbol, CalNFlag(n), kp.Value, kp.Key.ToString(), null, (PipSize), null, CommentSytem, null);
+                n++;
+            }
+        }
+        private void ReInitialPendingSellWhileUp(int poLabel)
+        {
+            var lsKPLess = lsKeyPrice.Where(a => a.Key <= poLabel).OrderByDescending(o => o.Key).Take(CountPending).ToList();
+
+            //เปิด pending ที่ราคาต่ำกว่าปัจจุบัน
+            int n = 2;
+            foreach (var kp in lsKPLess)
+            {
+                //PlaceLimitOrderAsync(TradeType.Buy, Symbol, vol, kp.Value, kp.Key.ToString(), null, (PipSize), null, CommentSytem, null);
+                PlaceStopOrderAsync(TradeType.Sell, Symbol, CalNFlag(n), kp.Value, kp.Key.ToString(), null, (PipSize), null, CommentSytem, null);
+                n++;
+            }
+        }
+
+
         private int CalNFlag(int n)
         {
-            int result = n * (n + 1) * vol;
+            int result = ((n * (n - 1)) + 1) * vol;
             if (result == 0)
             {
                 return 1000;
@@ -543,8 +691,17 @@ namespace cAlgo.Robots
             {
                 Print(">>FixAfterClose");
 
-                PlaceStopOrderAsync(po.TradeType, Symbol, vol, lsKeyPrice[Convert.ToInt32(po.Label)], po.Label, null, PipSize, null, CommentSytem);
-                PlaceLimitOrderAsync(po.TradeType, Symbol, vol, lsKeyPrice[Convert.ToInt32(po.Label)], po.Label, null, PipSize, null, CommentSytem);
+                ////PlaceStopOrderAsync(po.TradeType, Symbol, vol, lsKeyPrice[Convert.ToInt32(po.Label)], po.Label, null, PipSize, null, CommentSytem);
+                ////PlaceLimitOrderAsync(po.TradeType, Symbol, vol, lsKeyPrice[Convert.ToInt32(po.Label)], po.Label, null, PipSize, null, CommentSytem);
+                ///
+                if (po.TradeType == TradeType.Buy)
+                {
+                    PlaceLimitOrder(TradeType.Buy, Symbol, vol, lsKeyPrice[Convert.ToInt32(po.Label)], po.Label, null, PipSize, null, CommentSytem);
+                }
+                else
+                {
+                    PlaceStopOrder(TradeType.Sell, Symbol, vol, lsKeyPrice[Convert.ToInt32(po.Label)], po.Label, null, PipSize, null, CommentSytem);
+                }
 
 
                 //var lsKPMore = lsKeyPrice.Where(a => a.Value > Symbol.Ask).OrderBy(o => o.Key).Take(CountPending);
@@ -553,20 +710,20 @@ namespace cAlgo.Robots
                 ////เปิด pending ที่ราคาสูงกว่าปัจจุบัน
                 //foreach (var kp in lsKPMore.Where(x => x.Key == Convert.ToInt32(po.Label)))
                 //{
-                //    if (po.TradeType == TradeType.Buy)
-                //    {
-                //        if (PendingOrders.Where(x => x.SymbolCode == Symbol.Code && x.Comment == CommentSytem && x.Label == kp.Key.ToString() && x.TradeType == TradeType.Buy).Count() == 0)
-                //        {
-                //            PlaceStopOrder(TradeType.Buy, Symbol, vol, kp.Value, kp.Key.ToString(), null, null, null, CommentSytem);
-                //        }
-                //    }
-                //    else
-                //    {
-                //        if (PendingOrders.Where(x => x.SymbolCode == Symbol.Code && x.Comment == CommentSytem && x.Label == kp.Key.ToString() && x.TradeType == TradeType.Sell).Count() == 0)
-                //        {
-                //            PlaceLimitOrder(TradeType.Sell, Symbol, vol, kp.Value, kp.Key.ToString(), null, null, null, CommentSytem);
-                //        }
-                //    }
+                ////if (po.TradeType == TradeType.Buy)
+                ////{
+                ////    if (PendingOrders.Where(x => x.SymbolCode == Symbol.Code && x.Comment == CommentSytem && x.Label == kp.Key.ToString() && x.TradeType == TradeType.Buy).Count() == 0)
+                ////    {
+                ////        PlaceStopOrder(TradeType.Buy, Symbol, vol, kp.Value, kp.Key.ToString(), null, null, null, CommentSytem);
+                ////    }
+                ////}
+                ////else
+                ////{
+                ////    if (PendingOrders.Where(x => x.SymbolCode == Symbol.Code && x.Comment == CommentSytem && x.Label == kp.Key.ToString() && x.TradeType == TradeType.Sell).Count() == 0)
+                ////    {
+                ////        PlaceLimitOrder(TradeType.Sell, Symbol, vol, kp.Value, kp.Key.ToString(), null, null, null, CommentSytem);
+                ////    }
+                ////}
                 //}
 
                 ////เปิด pending ที่ราคาต่ำกว่าปัจจุบัน
@@ -721,8 +878,17 @@ namespace cAlgo.Robots
         }
         private void DrawTextOnGraph()
         {
-            //List<string> lsN = new List<string>();
-            //ChartObjects.DrawText("LifePocket >> ", "   กำไรปิดคงเหลือ:" + _lifePocket, StaticPosition.TopCenter, Colors.LightBlue);
+            List<string> lsN = new List<string>();
+            ChartObjects.DrawText("maxBuyLabel >> ", "   maxBuyLabel:" + maxBuyLabel, StaticPosition.TopLeft, Colors.LightBlue);
+
+            lsN.Add("\n");
+            ChartObjects.DrawText("minSellLabel", string.Join("", lsN) + "          minSellLabel:" + minSellLabel, StaticPosition.TopLeft, Colors.LightBlue);
+
+            lsN.Add("\n");
+            ChartObjects.DrawText("lastLabelBuy", string.Join("", lsN) + "          lastLabelBuy:" + lastLabelBuy, StaticPosition.TopLeft, Colors.LightBlue);
+
+            lsN.Add("\n");
+            ChartObjects.DrawText("lastLabelSell", string.Join("", lsN) + "          lastLabelSell:" + lastLabelSell, StaticPosition.TopLeft, Colors.LightBlue);
 
             //string sProfitBuy = "";
             //foreach (var ls in lsWillProfitClearBuy)
